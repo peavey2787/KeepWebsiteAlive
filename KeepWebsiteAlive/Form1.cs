@@ -14,9 +14,15 @@ namespace KeepWebsiteAlive
 {
     public partial class Form1 : Form
     {
+        #region Form Variables
         System.Timers.Timer timer = new System.Timers.Timer();
         GetWebsiteSource webSource = new GetWebsiteSource();
+        Task<string> tskGetHTML;
+        private int lastBrowserWidth = 499;
+        private int minFormWidth = 300;
+        #endregion
 
+        #region Form Open/Close
         public Form1()
         {
             timer.Elapsed += new System.Timers.ElapsedEventHandler(timer_Elapsed);
@@ -24,30 +30,48 @@ namespace KeepWebsiteAlive
 
             try // Loading the user's last input
             {
-                urlToKeepAlive.Text = Properties.Settings.Default.lastUrl.ToString();
-                WebsiteCheckDuration.Text = Properties.Settings.Default.lastMins.ToString();
+                urlToKeepAlive.Text = Properties.Settings.Default.lastUrl;
+                WebsiteCheckDuration.Text = Properties.Settings.Default.lastMins;
             }
             catch { }
+            MaximumSize = new Size(Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height);
         }
 
-        private async void timer_Elapsed(object sender, ElapsedEventArgs e)
+        private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
-            // Re-check the website and let the user know whats going on
-            statusConsole.Invoke((Action)delegate 
-            {
-                statusConsole.Text += Environment.NewLine +"Checking Website....";
-                statusConsole.Text += Environment.NewLine + "Loading Website in Browser...";
-            });
+            StopStayingAlive();
 
-            webBrowser.DocumentText = await webSource.HTML;
+            // Save the user's input settings 
+            Properties.Settings.Default.lastUrl = urlToKeepAlive.Text;
+            Properties.Settings.Default.lastMins = WebsiteCheckDuration.Text;
+            Properties.Settings.Default.Save();
+        }
+        #endregion
 
-            statusConsole.Invoke((Action)delegate
-            {
-                statusConsole.Text += Environment.NewLine + "Website Loaded.";
-            });
+        #region Button Clicks (Start/Stop)
+        private void buttonStart_Click(object sender, EventArgs e)
+        {
+            StartStayingAlive();
+
+            // Disable start and enable stop button
+            buttonStart.Text = "Running";
+            buttonStart.Enabled = false;
+            buttonStop.Enabled = true;
         }
 
-        private async void buttonStart_Click(object sender, EventArgs e)
+        private void buttonStop_Click(object sender, EventArgs e)
+        {
+            StopStayingAlive();
+
+            // Enable start button
+            buttonStart.Text = "Start";
+            buttonStart.Enabled = true;
+            buttonStop.Enabled = false;
+        }
+        #endregion
+
+        #region Core Engine - Start/Stop/Check Website
+        private void StartStayingAlive()
         {
             int checkedDuration = 0;
             Uri checkedUrl;
@@ -61,55 +85,92 @@ namespace KeepWebsiteAlive
 
             // Make sure only valid websites are in the url textbox
             if (!Uri.TryCreate(urlToKeepAlive.Text, UriKind.Absolute, out checkedUrl)
-                && (checkedUrl.Scheme == Uri.UriSchemeHttp || checkedUrl.Scheme == Uri.UriSchemeHttps) )
+                && (checkedUrl.Scheme == Uri.UriSchemeHttp || checkedUrl.Scheme == Uri.UriSchemeHttps))
             {
                 MessageBox.Show("Only enter valid URL's! (aka http://somewebsite.com or https://www.somewebsite.net etc.");
                 return;
             }
 
             // Enable timer and set URL
-            timer.Interval = checkedDuration * 60000;
-            timer.Enabled = true;
             webSource.websiteURL = checkedUrl;
-           
-            // Inform user via status console
-            buttonStart.Text = "Running";
-            buttonStart.Enabled = false;
-            statusConsole.Text += "Keeping Website at " + checkedUrl + " Alive!";
-            statusConsole.Text += Environment.NewLine + "Loading Website in Browser...";
-            webBrowser.DocumentText = await webSource.HTML;
-            statusConsole.Text += Environment.NewLine + "Website Loaded.";
+            timer.Interval = checkedDuration * 60000;
+            tskGetHTML = webSource.HTML;
+            timer.Enabled = true;
+            UpdateStatus("Keeping " + checkedUrl + " Alive!");
+            CheckWebsite();
         }
 
-        private void buttonStop_Click(object sender, EventArgs e)
+        private void timer_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            CheckWebsite(); // Re-check the website
+        }
+        private async void CheckWebsite()
+        {
+            UpdateStatus("Loading Website in Browser...");
+            try
+            {
+                webBrowser.DocumentText = await tskGetHTML;
+                UpdateStatus("Website Loaded.");
+            }
+            catch (Exception exception)
+            {
+                UpdateStatus("ERROR!Website was NOT Loaded!");
+                UpdateStatus(exception.Message);
+            }
+        }
+
+        private void StopStayingAlive()
         {
             // Stop timer and reset everything back to normal
+            try { tskGetHTML.Dispose(); }
+            catch { }
             timer.Enabled = false;
-            statusConsole.Text = "Checking Stopped!";
-            buttonStart.Text = "Start";
-            buttonStart.Enabled = true;
+            UpdateStatus("Checking Stopped!");
         }
 
-        private void Form1_FormClosed(object sender, FormClosedEventArgs e)
+        private void UpdateStatus(string message)
         {
-            // Save the user's input settings 
-            Properties.Settings.Default.lastUrl = webSource.websiteURL.ToString();
-            Properties.Settings.Default.lastMins = WebsiteCheckDuration.Text.ToString();
-            Properties.Settings.Default.Save();
+            if (statusConsole.InvokeRequired)
+            {
+                statusConsole.Invoke((Action)delegate
+                {
+                    statusConsole.Text += Environment.NewLine + message;
+                });
+            }
+            else
+                statusConsole.Text += Environment.NewLine + message;
         }
+        #endregion
 
+        #region Resize Form to Show/Hide Web Browser
         private void showBrowser_CheckedChanged(object sender, EventArgs e)
         {
-            if (!showBrowser.Checked)
+            if (showBrowser.Checked)
             {
-                webBrowser.Hide();
-                this.Width -= 499;
+                webBrowser.Show();
+                this.Width += lastBrowserWidth;
             }
             else
             {
-                webBrowser.Show();
-                this.Width += 499;
+                webBrowser.Hide();
+                lastBrowserWidth = webBrowser.Width;
+                this.Width = Width - lastBrowserWidth;
             }
         }
+
+        private void webBrowser_Resize(object sender, EventArgs e)
+        {
+            if (showBrowser.Checked)
+                lastBrowserWidth = webBrowser.Width;
+        }
+
+        private void Form1_ResizeEnd(object sender, EventArgs e)
+        {
+            if (!showBrowser.Checked)
+                Width = minFormWidth;
+            else if (Width <= minFormWidth + 300)
+                Width = minFormWidth + 300;
+        }
+        #endregion
     }
 }

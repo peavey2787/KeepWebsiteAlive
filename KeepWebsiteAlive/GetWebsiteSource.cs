@@ -10,12 +10,12 @@ namespace GetHTMLSource
 {
     public class GetWebsiteSource
     {
-        public Task<string> HTML { get { return getHTML(); } set {; } }
+        public Task<string> HTML { get { return getHTML(); } set { } }
         public Uri websiteURL { get; set; }
 
         /// <summary>
-        /// Gets HTML Source Code right away and every so often as specified
-        /// in order to prevent a website from "going to sleep"
+        /// Gets HTML Source Code - No Error Checking
+        /// Must send valid link/handle error catching
         /// </summary>
         /// <returns>HTML Source Code</returns>
 
@@ -34,8 +34,5 @@ namespace GetHTMLSource
                 return source;
             });
         }
-
-
-        
     }
 }
